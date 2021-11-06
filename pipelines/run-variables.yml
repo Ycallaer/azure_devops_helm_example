@@ -1,0 +1,6 @@
+parameters:
+  - name: group_environment
+    type: string
+
+variables:
+  - group: helm-kv-${{ parameters.group_environment }}  #  Variable Group linked to Azure key vault containing secrets

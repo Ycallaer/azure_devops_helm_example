@@ -1,0 +1,18 @@
+parameters:
+  - name: group_environment
+    type: string
+    default: dev
+
+steps:
+  - bash: |
+        set -ex
+        envsubst '$${VAR1},$${VAR2}' < src/helm/demo-api/values-dev-template.yml > src/helm/demo-api/values-dev.yml
+    displayName: Replace variables for kms secret
+    env:
+        VAR1: $(secret1)
+        VAR2: $(secret2)
+
+  - task: PublishBuildArtifacts@1
+    inputs:
+      PathtoPublish: src/helm/demo-api/values-${{ parameters.group_environment }}.yml
+      ArtifactName: 'helm-template-file'

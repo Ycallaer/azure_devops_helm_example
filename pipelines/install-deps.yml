@@ -1,0 +1,35 @@
+steps:
+  - task: KubectlInstaller@0
+    displayName: 'Install Kubectl 1.19.9'
+    inputs:
+      kubectlVersion: 1.19.9
+    enabled: true
+
+  - bash: |
+      echo "Start download Jfrog cli from artifactory"
+      curl -O -u myuser:$MAVEN_JFROG_TOKEN -X GET https://mypersonalartifactory.com/artifactory/artifacts-internal/jfrog
+      mkdir -p $(Agent.ToolsDirectory)/_jfrog/current/
+      sudo mv jfrog $(Agent.ToolsDirectory)/_jfrog/current/
+      sudo chmod -R 755 $(Agent.ToolsDirectory)/_jfrog/current/jfrog
+    displayName: Jfrog CLI install
+    env:
+      MAVEN_JFROG_TOKEN: $(jfrog-pwd-ci)
+
+  - bash: |
+      helm repo add helm-local https://mypersonalartifactory.com/artifactory/helm-local
+      helm repo update
+    failOnStderr: true
+    displayName: "Helm Repo Assignment"
+    env:
+      MAVEN_JFROG_TOKEN: $(jfrog-pwd-ci)
+
+#Usr is the user your docker image runs with
+  - bash: |
+      curl -O -u myuser:$MAVEN_JFROG_TOKEN -X GET https://mypersonalartifactory.com/artifactory/artifacts-internal/helm-diff-linux.tgz
+      ls -l
+      mkdir -p  /home/<usr>/.local/share/helm/plugins/helm-diff
+      tar -zxvf helm-diff-linux.tgz -C /home/<usr>/.local/share/helm/plugins/helm-diff  --strip-components=1
+    failOnStderr: false
+    displayName: "Installation helm Diff"
+    env:
+      MAVEN_JFROG_TOKEN: $(jfrog-pwd-ci)

@@ -1,0 +1,119 @@
+parameters:
+  - name: environment
+    type: string
+    default: dev
+    values:
+      - dev
+      - tst
+      - prod
+
+  - name: chart_version
+    type: string
+    default: 0.1.1
+
+trigger:
+  paths:
+    include:
+    - src/helm/demo-api
+
+stages:
+- stage: demo_helm_prep
+  jobs:
+    - job: demoHelmPrepare
+      displayName: demo helm preparation steps
+      variables:
+      - template: run-variables.yml
+        parameters:
+          group_environment: ${{ parameters.environment }}
+      pool:
+        name: linux-containers
+        demands:
+          - docker
+          - linux-containers
+      container: mypersonalartifactory.com/docker/base-helm:1.0.0
+      steps:
+        - template: install-deps.yml
+
+        - task: CmdLine@2
+          displayName: "Helm: List repo content"
+          inputs:
+            script: |
+              helm search repo demo
+
+        - task: CmdLine@2
+          displayName: "Helm: Template output"
+          inputs:
+            script: |
+              helm template helm-local/demo -f src/helm/demo-api/values-${{ parameters.environment }}-template.yml
+
+        - template: chart-generation.yml
+          parameters:
+            group_environment: ${{ parameters.environment }}
+
+        - task: Kubernetes@1
+          displayName: "Kubectl login"
+          inputs:
+              connectionType: 'Kubernetes Service Connection'
+              kubernetesServiceEndpoint: 'euwest-aks-dev'
+              namespace: 'demo'
+              command: 'login'
+
+        - task: CmdLine@2
+          displayName: "Helm Diff"
+          inputs:
+            script: |
+                helm diff upgrade demo-api-${{ parameters.environment }} helm-local/demo --values src/helm/demo-api/values-${{ parameters.environment }}.yml --allow-unreleased -n demo
+
+- stage: demo_manual_validate
+  dependsOn: demo_helm_prep
+  jobs:
+    - job: ManualValidation
+      displayName: Validate if you want to continue
+      pool:
+        name: server
+      steps:
+        - task: ManualValidation@0
+          condition: in('${{ parameters.environment }}', 'tst', 'prod')
+          timeoutInMinutes: 1440 # task times out in 1 day
+          inputs:
+            notifyUsers: |
+              myuser@myawesomecompany.com
+            instructions: 'Please validate the helm diff.'
+            onTimeout: 'reject'
+
+- stage: demo_helm_deploy
+  dependsOn: demo_manual_validate
+  jobs:
+    - job: demoHelmDeploy
+      displayName: demo helm deploy
+      variables:
+      - template: run-variables.yml
+        parameters:
+          group_environment: ${{ parameters.environment }}
+      pool:
+        name: linux-containers
+        demands:
+          - docker
+          - linux-containers
+      container: mypersonalartifactory.com/docker/base-helm:1.0.0
+      steps:
+        - template: install-deps.yml
+
+        - task: DownloadPipelineArtifact@2
+          inputs:
+            artifact: helm-template-file
+            path: src/helm/demo-api/
+
+        - task: HelmDeploy@0
+          displayName: "Deploy helm chart for environment ${{ parameters.environment }}"
+          inputs:
+              connectionType: 'Kubernetes Service Connection'
+              kubernetesServiceConnection: 'euwest-aks-dev'
+              namespace: 'demo'
+              command: 'upgrade'
+              chartName: 'helm-local/demo'
+              valueFile: src/helm/demo-api/values-${{ parameters.environment }}.yml
+              releaseName: demo-api-${{ parameters.environment }}
+              version: ${{ parameters.chart_version }}
+              install: true
+
